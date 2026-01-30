@@ -21,16 +21,36 @@ class BoundingBox(TypedDict):
 
 
 def _get_sam_model():
-    """延迟加载 MobileSAM 模型"""
+    """
+    延迟加载 MobileSAM 模型
+
+    Ultralytics SAM 会自动下载模型文件（如果不存在）:
+    - 模型来源: https://github.com/ultralytics/assets/releases
+    - 文件大小: ~24MB
+    - 下载位置: 当前工作目录或 ~/.ultralytics/
+    """
     global _sam_model
     if _sam_model is None:
         try:
             from ultralytics import SAM
-            print("[Segmentation] 加载 MobileSAM 模型...")
-            _sam_model = SAM("mobile_sam.pt")
-            print("[Segmentation] MobileSAM 模型加载完成")
+            import os
+
+            model_path = "mobile_sam.pt"
+
+            # 检查模型是否存在
+            if not os.path.exists(model_path):
+                print("[Segmentation] MobileSAM 模型不存在，将自动下载...")
+                print("[Segmentation] 下载源: Ultralytics GitHub Releases (~24MB)")
+            else:
+                print("[Segmentation] 加载本地 MobileSAM 模型...")
+
+            # Ultralytics SAM 会自动下载如果文件不存在
+            _sam_model = SAM(model_path)
+            print("[Segmentation] MobileSAM 模型加载完成 ✓")
+
         except Exception as e:
             print(f"[Segmentation] 加载 MobileSAM 失败: {e}")
+            print("[Segmentation] 将使用简单裁剪作为回退方案")
             return None
     return _sam_model
 
