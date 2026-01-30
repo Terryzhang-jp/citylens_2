@@ -1,0 +1,21 @@
+# Virtual environment
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment files
+.env
+.env.local
+
+# Model files (will be auto-downloaded)
+*.pt
+*.pth
+
+# IDE
+.vscode/
+.idea/
+
+# Git
+.git/
+.gitignore

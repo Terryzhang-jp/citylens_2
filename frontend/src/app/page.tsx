@@ -3,6 +3,9 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import MarkupCanvas from "@/components/MarkupCanvas";
 
+// API base URL - defaults to localhost for development
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
 // Types
 interface ExifData {
   location?: string;
@@ -157,7 +160,7 @@ export default function Home() {
       const formData = new FormData();
       formData.append("image", file);
 
-      const response = await fetch("http://localhost:8000/api/upload", {
+      const response = await fetch(`${API_BASE_URL}/api/upload`, {
         method: "POST",
         body: formData,
       });
@@ -208,7 +211,7 @@ export default function Home() {
         formData.append("has_markup", "false");
       }
 
-      const uploadResponse = await fetch("http://localhost:8000/api/upload", {
+      const uploadResponse = await fetch(`${API_BASE_URL}/api/upload`, {
         method: "POST",
         body: formData,
       });
@@ -227,7 +230,7 @@ export default function Home() {
       setAnalysisPhase("连接分析服务...");
 
       // Build analysis URL with location params
-      let analyzeUrl = `http://localhost:8000/api/analyze/${currentImageId}`;
+      let analyzeUrl = `${API_BASE_URL}/api/analyze/${currentImageId}`;
       const params = new URLSearchParams();
 
       // Use EXIF location or manual location
