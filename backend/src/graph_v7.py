@@ -1413,26 +1413,39 @@ async def run_perception_v7_streaming(
                 "layer": 5,
                 "phase": "segmentation",
                 "message": f"提取关键区域...",
-                "detail": f"为 {len(findings_with_bbox)} 个发现生成抠图",
+                "detail": f"批量处理 {len(findings_with_bbox)} 个区域",
             }
 
+            t5 = time.time()
             try:
-                from src.utils.segmentation import segment_region
+                from src.utils.segmentation import batch_segment_regions
 
-                for finding in state.surface_findings:
+                # 收集所有有效的 bbox 及其对应的 finding 索引
+                valid_bboxes = []
+                valid_indices = []
+                for idx, finding in enumerate(state.surface_findings):
                     bbox = finding.get("bounding_box")
                     if bbox and isinstance(bbox, dict):
                         if all(k in bbox for k in ["x1", "y1", "x2", "y2"]):
-                            cropped_image = segment_region(
-                                state.image_data,
-                                bbox,
-                                output_format="png",
-                            )
-                            if cropped_image:
-                                finding["cropped_image"] = cropped_image
+                            valid_bboxes.append(bbox)
+                            valid_indices.append(idx)
+
+                # 批量处理所有 bbox
+                if valid_bboxes:
+                    cropped_images = batch_segment_regions(
+                        state.image_data,
+                        valid_bboxes,
+                        output_format="png",
+                    )
+
+                    # 将结果映射回对应的 finding
+                    for i, idx in enumerate(valid_indices):
+                        if i < len(cropped_images) and cropped_images[i]:
+                            state.surface_findings[idx]["cropped_image"] = cropped_images[i]
 
                 # 将带抠图的 findings 添加到 final_response
                 state.final_response["surface_findings"] = state.surface_findings
+                timings["segmentation"] = time.time() - t5
             except Exception as e:
                 print(f"[Segmentation] Surface 分割失败: {e}")
 
@@ -1502,25 +1515,35 @@ async def run_perception_v7_streaming(
                 "layer": 5,
                 "phase": "segmentation",
                 "message": f"提取关键区域...",
-                "detail": f"为 {len(insights_with_bbox)} 个洞见生成抠图",
+                "detail": f"批量处理 {len(insights_with_bbox)} 个区域",
             }
 
             t5 = time.time()
             try:
-                from src.utils.segmentation import segment_region
+                from src.utils.segmentation import batch_segment_regions
 
-                for insight in state.final_response["insights"]:
+                # 收集所有有效的 bbox 及其对应的 insight 索引
+                valid_bboxes = []
+                valid_indices = []
+                for idx, insight in enumerate(state.final_response["insights"]):
                     bbox = insight.get("bounding_box")
                     if bbox and isinstance(bbox, dict):
-                        # 确保 bbox 有所有必需的键
                         if all(k in bbox for k in ["x1", "y1", "x2", "y2"]):
-                            cropped_image = segment_region(
-                                state.image_data,
-                                bbox,
-                                output_format="png",
-                            )
-                            if cropped_image:
-                                insight["cropped_image"] = cropped_image
+                            valid_bboxes.append(bbox)
+                            valid_indices.append(idx)
+
+                # 批量处理所有 bbox（一次模型推理）
+                if valid_bboxes:
+                    cropped_images = batch_segment_regions(
+                        state.image_data,
+                        valid_bboxes,
+                        output_format="png",
+                    )
+
+                    # 将结果映射回对应的 insight
+                    for i, idx in enumerate(valid_indices):
+                        if i < len(cropped_images) and cropped_images[i]:
+                            state.final_response["insights"][idx]["cropped_image"] = cropped_images[i]
 
                 timings["segmentation"] = time.time() - t5
 
@@ -1535,7 +1558,7 @@ async def run_perception_v7_streaming(
                     "layer": 5,
                     "phase": "segmentation_done",
                     "message": f"区域提取完成",
-                    "detail": f"成功提取 {cropped_count}/{len(insights_with_bbox)} 个区域",
+                    "detail": f"成功提取 {cropped_count}/{len(insights_with_bbox)} 个区域 ({timings['segmentation']:.1f}s)",
                 }
             except Exception as e:
                 print(f"[Segmentation] 分割步骤失败: {e}")

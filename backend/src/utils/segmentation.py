@@ -242,23 +242,95 @@ def batch_segment_regions(
     image_data: bytes,
     bboxes: list[BoundingBox],
     output_format: str = "png",
+    add_padding: int = 10,
 ) -> list[Optional[str]]:
     """
-    批量分割多个区域
+    批量分割多个区域（优化版：一次模型推理处理所有 bbox）
 
     Args:
         image_data: 原图字节
         bboxes: bbox 列表
         output_format: 输出格式
+        add_padding: 边距
 
     Returns:
         base64 编码的图片列表，失败的为 None
     """
-    results = []
-    for bbox in bboxes:
-        result = segment_region(image_data, bbox, output_format)
-        results.append(result)
-    return results
+    if not bboxes:
+        return []
+
+    try:
+        # 只加载一次图片
+        image = Image.open(io.BytesIO(image_data))
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+
+        width, height = image.size
+        image_np = np.array(image)
+
+        # 转换所有 bbox 坐标
+        pixel_bboxes = [_bbox_to_pixels(bbox, width, height) for bbox in bboxes]
+
+        # 获取 SAM 模型
+        model = _get_sam_model()
+
+        if model is None:
+            # SAM 不可用，回退到简单裁剪
+            print("[Segmentation] 使用简单裁剪（批量）")
+            return [
+                _fallback_crop(image, pb, add_padding, output_format)
+                for pb in pixel_bboxes
+            ]
+
+        # 一次性推理所有 bbox
+        print(f"[Segmentation] 批量处理 {len(bboxes)} 个区域...")
+        results = model(image_np, bboxes=pixel_bboxes)
+
+        if not results or len(results) == 0:
+            return [
+                _fallback_crop(image, pb, add_padding, output_format)
+                for pb in pixel_bboxes
+            ]
+
+        # 处理每个结果
+        output = []
+        result = results[0]  # SAM 返回单个 result，包含多个 masks
+
+        if result.masks is None or len(result.masks.data) == 0:
+            return [
+                _fallback_crop(image, pb, add_padding, output_format)
+                for pb in pixel_bboxes
+            ]
+
+        for i, pixel_bbox in enumerate(pixel_bboxes):
+            try:
+                if i < len(result.masks.data):
+                    mask = result.masks.data[i].cpu().numpy()
+                    cropped = _apply_mask_and_crop(image_np, mask, pixel_bbox, add_padding)
+                    output.append(_encode_image(cropped, output_format))
+                else:
+                    # mask 不足，使用简单裁剪
+                    output.append(_fallback_crop(image, pixel_bbox, add_padding, output_format))
+            except Exception as e:
+                print(f"[Segmentation] 处理第 {i+1} 个区域失败: {e}")
+                output.append(_fallback_crop(image, pixel_bbox, add_padding, output_format))
+
+        print(f"[Segmentation] 批量处理完成 ✓")
+        return output
+
+    except Exception as e:
+        print(f"[Segmentation] 批量分割失败: {e}")
+        # 全部回退到简单裁剪
+        try:
+            image = Image.open(io.BytesIO(image_data))
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+            return [
+                _fallback_crop(image, _bbox_to_pixels(bbox, image.width, image.height), add_padding, output_format)
+                for bbox in bboxes
+            ]
+        except:
+            return [None] * len(bboxes)
 
 
 # 预热模型（可选，在启动时调用）
